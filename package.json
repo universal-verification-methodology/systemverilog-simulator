@@ -1,0 +1,7 @@
+{
+  "name": "systemverilog-simulator",
+  "private": true,
+  "rev": 1,
+  "description": "Public release build of the HDL Simulator workbench.",
+  "license": "MIT"
+}

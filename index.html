@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f6b5c">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>HDL Simulator (rev1)</title>
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("hdl-theme");
+        var theme = stored === "light" || stored === "dark"
+          ? stored
+          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (_) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <div class="top-stack">
+    <header class="toolbar">
+      <button type="button" id="btnSidebar" class="ghost icon-btn" title="Signals panel" aria-label="Toggle signals panel" aria-expanded="false" aria-controls="sidebar">☰</button>
+      <div class="toolbar-brand">HDL Simulator</div>
+      <div class="toolbar-group toolbar-run">
+        <button type="button" id="btnRun" class="primary" title="Run to end (Ctrl+Enter)">Run</button>
+        <button type="button" id="btnStop" class="ghost" disabled title="Stop interactive session">Stop</button>
+        <button type="button" id="btnStep" class="ghost" title="Step one time slot">Step</button>
+        <button type="button" id="btnContinue" class="ghost" disabled title="Continue to end from here">Continue</button>
+        <button type="button" id="btnRunToC1" class="ghost" disabled title="Run session until C1 time">→C1</button>
+        <button type="button" id="btnNextEdge" class="ghost" disabled title="Run to next posedge of poke signal (or clk)">↗edge</button>
+        <button type="button" id="btnReset" class="ghost" title="Reload project">Reset</button>
+      </div>
+      <div class="toolbar-group grow toolbar-opts">
+        <label class="tb-label">
+          Engine
+          <select id="engineSelect" title="Simulation engine"></select>
+        </label>
+        <label class="tb-label">
+          Project
+          <select id="projectSelect"></select>
+        </label>
+        <label class="tb-label">
+          Top
+          <select id="topSelect" title="Top module"></select>
+        </label>
+        <label class="tb-label">
+          Max t
+          <input type="number" id="maxTime" min="1" max="1000000" value="1000" title="Simulation time limit">
+        </label>
+        <label class="tb-label">
+          Time unit
+          <select id="timeUnit">
+            <option value="1">1</option>
+            <option value="ns" selected>ns</option>
+            <option value="ps">ps</option>
+          </select>
+        </label>
+        <span class="status" id="runStatus">Idle</span>
+      </div>
+      <div class="toolbar-group toolbar-end">
+        <details class="toolbar-more">
+          <summary class="ghost tiny">More</summary>
+          <div class="toolbar-more-panel" role="menu">
+            <button type="button" class="ghost" data-proxy="btnContinue">Continue</button>
+            <button type="button" class="ghost" data-proxy="btnRunToC1">→C1</button>
+            <button type="button" class="ghost" data-proxy="btnNextEdge">↗edge</button>
+            <button type="button" class="ghost" data-proxy="btnView">View</button>
+            <button type="button" class="ghost" data-proxy="btnImport">Import</button>
+            <button type="button" class="ghost" data-proxy="btnExport">JSON</button>
+            <button type="button" class="ghost" data-proxy="btnExportVcd">VCD</button>
+          </div>
+        </details>
+        <button type="button" id="btnView" class="ghost" title="Show or hide panels &amp; tools">View</button>
+        <button type="button" id="btnImport" class="ghost" title="Import wave JSON or VCD">Import</button>
+        <button type="button" id="btnExport" class="ghost" title="Export wave JSON">JSON</button>
+        <button type="button" id="btnExportVcd" class="ghost" title="Export VCD">VCD</button>
+        <label class="theme-switch" title="Day / night theme">
+          <span class="theme-switch-label" id="themeLabel">Day</span>
+          <input type="checkbox" id="themeToggle" role="switch" aria-checked="false" aria-label="Night mode">
+          <span class="theme-switch-track" aria-hidden="true"></span>
+        </label>
+        <input type="file" id="importFile" accept="application/json,.json,.vcd,text/plain" hidden>
+      </div>
+    </header>
+    <div id="sidebarBackdrop" class="sidebar-backdrop" hidden></div>
+    <div id="sessionBanner" class="session-banner" hidden>
+      Source changed since Step session started.
+      <button type="button" id="btnRestartSession" class="ghost tiny">Restart session</button>
+    </div>
+    </div>
+
+    <div class="workspace" id="workspace">
+      <aside class="sidebar" id="sidebar" aria-label="Signal browser">
+        <div class="side-section hier-section" id="hierSection">
+          <div class="side-head">
+            <h2>Hierarchy</h2>
+          </div>
+          <ul id="hierTree" class="tree" role="tree"></ul>
+        </div>
+        <div class="split-h side-split" data-split="hier" title="Drag to resize hierarchy" role="separator" aria-orientation="horizontal"></div>
+        <div class="side-section flex">
+          <div class="side-head">
+            <h2>Signals</h2>
+            <input type="search" id="sigFilter" placeholder="Filter…" aria-label="Filter signals">
+          </div>
+          <ul id="availList" class="sig-browser" aria-label="Available signals"></ul>
+          <div class="side-actions">
+            <button type="button" id="btnAddSelected" class="ghost tiny">Add selected</button>
+            <button type="button" id="btnAddAll" class="ghost tiny">Add all</button>
+          </div>
+        </div>
+        <div class="side-section poke-section">
+          <div class="side-head">
+            <h2>Poke</h2>
+          </div>
+          <div class="poke-form">
+            <label class="tb-label">
+              Signal
+              <input type="text" id="pokeName" list="pokeSignalList" placeholder="clk" autocomplete="off">
+              <datalist id="pokeSignalList"></datalist>
+            </label>
+            <label class="tb-label">
+              Value
+              <input type="text" id="pokeValue" placeholder="1 or 0101" spellcheck="false">
+            </label>
+            <button type="button" id="btnPoke" class="ghost tiny" disabled>Apply poke</button>
+            <p class="poke-hint">Step to start a session. Values: 1, 0101, or 8'hA5. ↗edge uses poke signal or clk.</p>
+          </div>
+        </div>
+      </aside>
+      <div class="split-v" data-split="sidebar" title="Drag to resize" role="separator" aria-orientation="vertical"></div>
+
+      <div class="center" id="center">
+        <section class="editor-pane">
+          <div class="pane-tabs">
+            <div class="file-tab-list" id="fileTabs" role="tablist" aria-label="Source files"></div>
+            <button type="button" id="btnAddFile" class="ghost tiny file-add" title="Add source file">+ File</button>
+            <span class="tab active" id="fileTab" hidden>design.v</span>
+            <span class="pane-meta" id="editorMeta">Verilog</span>
+            <div class="pane-actions">
+              <button type="button" id="btnFold" class="ghost tiny" title="Fold top-level blocks">Fold</button>
+              <button type="button" id="btnUnfold" class="ghost tiny" title="Expand all folds">Unfold</button>
+              <button type="button" id="btnSplit" class="ghost tiny" title="Toggle 2-column editor" aria-pressed="false">2-pane</button>
+              <span class="editor-zoom-controls" title="Ctrl+wheel zoom · Shift+wheel pan · middle-drag pan">
+                <button type="button" id="btnEditorZoomOut" class="ghost tiny" title="Zoom out (Ctrl+−)">A−</button>
+                <button type="button" id="btnEditorZoomReset" class="ghost tiny editor-zoom-label" title="Reset zoom (Ctrl+0)">100%</button>
+                <button type="button" id="btnEditorZoomIn" class="ghost tiny" title="Zoom in (Ctrl++)">A+</button>
+              </span>
+              <button type="button" id="btnFind" class="ghost tiny" title="Find (Ctrl+F)">Find</button>
+              <button type="button" id="btnReplace" class="ghost tiny" title="Replace (Ctrl+H)">Replace</button>
+              <button type="button" id="btnGoto" class="ghost tiny" title="Go to line (Ctrl+G)">Go to</button>
+              <button type="button" id="btnHelp" class="ghost tiny" title="Shortcuts (?)">?</button>
+              <button type="button" id="btnRevert" class="ghost tiny" title="Discard edits and reload template" hidden>Revert</button>
+            </div>
+          </div>
+          <div id="findBar" class="find-bar" hidden>
+            <input type="search" id="findInput" placeholder="Find in source…" aria-label="Find">
+            <input type="search" id="replaceInput" placeholder="Replace with…" aria-label="Replace" hidden>
+            <label class="find-opt" title="Match case"><input type="checkbox" id="findCase"> Aa</label>
+            <button type="button" id="btnFindPrev" class="ghost tiny" title="Previous (Shift+Enter)">↑</button>
+            <button type="button" id="btnFindNext" class="ghost tiny" title="Next (Enter)">↓</button>
+            <button type="button" id="btnReplaceOne" class="ghost tiny" title="Replace" hidden>Rep</button>
+            <button type="button" id="btnReplaceAll" class="ghost tiny" title="Replace all" hidden>All</button>
+            <span id="findCount" class="find-count"></span>
+            <button type="button" id="btnFindClose" class="ghost tiny" title="Close (Esc)">×</button>
+          </div>
+          <div class="editor-split" id="editorSplit">
+            <div class="editor-col" id="editorColMain">
+              <textarea id="editor" spellcheck="false" aria-label="Source editor"></textarea>
+            </div>
+            <div class="split-v editor-vsplit" id="editorSplitV" data-split="editor" hidden title="Drag to resize" role="separator" aria-orientation="vertical" aria-hidden="true"></div>
+            <div class="editor-col editor-col-side" id="editorColSide" hidden aria-hidden="true">
+              <div class="side-editor-bar">
+                <label class="side-file-label">
+                  <span class="sr-only">Side pane file</span>
+                  <select id="sideFileSelect" aria-label="Side pane file"></select>
+                </label>
+                <span class="side-editor-hint" id="sideEditorHint">Mirror</span>
+                <button type="button" id="btnCloseSplit" class="ghost tiny" title="Close split">×</button>
+              </div>
+              <textarea id="editorSide" spellcheck="false" aria-label="Side source editor"></textarea>
+            </div>
+          </div>
+        </section>
+        <div class="split-h" data-split="console" title="Drag to resize" role="separator" aria-orientation="horizontal"></div>
+        <section class="console-pane">
+          <div class="pane-tabs">
+            <button type="button" class="tab active" data-bottom-tab="console">Console</button>
+            <button type="button" class="tab" data-bottom-tab="events">Events</button>
+            <button type="button" class="tab" data-bottom-tab="tests">Tests</button>
+            <div class="pane-actions">
+              <button type="button" id="btnCopyConsole" class="ghost tiny" title="Copy console">Copy</button>
+              <button type="button" id="btnClearConsole" class="ghost tiny">Clear</button>
+            </div>
+          </div>
+          <pre id="console" class="console bottom-panel" data-panel="console" title="Click a line with t=… to jump the wave cursor"></pre>
+          <ul id="eventRail" class="event-rail bottom-panel" data-panel="events" hidden aria-label="Simulation events"></ul>
+          <div id="testSummary" class="test-summary bottom-panel" data-panel="tests" hidden>
+            <p class="test-empty">Run a simulation — $error / $warning / PASS / FAIL lines appear here.</p>
+            <ul id="testList"></ul>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <div class="split-h wave-split" data-split="wave" title="Drag to resize" role="separator" aria-orientation="horizontal"></div>
+
+    <section class="wave-pane" id="wavePane" tabindex="0" aria-label="Waveform">
+      <div class="wave-toolbar">
+        <h2>Waveform</h2>
+        <div class="wave-tools">
+          <button type="button" id="btnZoomOut" class="ghost tiny" title="Zoom out (−)">−</button>
+          <input type="range" id="zoom" min="1" max="256" value="12" aria-label="Zoom">
+          <button type="button" id="btnZoomIn" class="ghost tiny" title="Zoom in (+)">+</button>
+          <button type="button" id="btnFit" class="ghost tiny" title="Fit full run (F)">Fit</button>
+          <button type="button" id="btnZoomCursors" class="ghost tiny" title="Zoom to C1–C2 (Z)">C1–C2</button>
+          <button type="button" id="btnGoC1" class="ghost tiny" title="Select &amp; center C1 (1)">→C1</button>
+          <button type="button" id="btnGoC2" class="ghost tiny" title="Select &amp; center C2 (2)">→C2</button>
+          <button type="button" id="btnMark" class="ghost tiny" title="Toggle marker at active cursor (M)">◆</button>
+          <button type="button" id="btnPrevMark" class="ghost tiny" title="Previous marker (,)">◂M</button>
+          <button type="button" id="btnNextMark" class="ghost tiny" title="Next marker (.)">M▸</button>
+          <button type="button" id="btnWaveSearch" class="ghost tiny" title="Search wave value (/ )">Find</button>
+          <button type="button" id="btnNextEdgeWave" class="ghost tiny" title="Next transition (N)">N▸</button>
+          <button type="button" id="btnClearWaves" class="ghost tiny">Clear</button>
+          <label class="tb-label inline">
+            Radix
+            <select id="radix" title="Default radix (per-trace override on row button)">
+              <option value="bin">Bin</option>
+              <option value="hex" selected>Hex</option>
+              <option value="dec">Dec</option>
+            </select>
+          </label>
+        </div>
+        <div class="wave-status">
+          <input type="search" id="traceFilter" class="trace-filter" placeholder="Filter traces…" aria-label="Filter traces">
+          <div class="cursors" id="cursorReadout">
+            <span data-readout="zoom">12 px/t</span>
+            <span data-readout="c1" title="Click to center C1" role="button" tabindex="0">C1: —</span>
+            <span data-readout="c2" title="Click to center C2" role="button" tabindex="0">C2: —</span>
+            <span data-readout="delta">Δ: —</span>
+            <span data-readout="marks">M: 0</span>
+          </div>
+        </div>
+      </div>
+      <div class="wave-body" id="waveBody">
+        <div class="wave-names" id="waveNames" role="listbox" aria-label="Wave traces"></div>
+        <div class="wave-scroll" id="waveScroll">
+          <canvas id="waveCanvas"></canvas>
+        </div>
+      </div>
+      <div class="wave-values" id="waveValues" hidden>
+        <div class="wave-values-bar">
+          <strong>Values at cursors</strong>
+          <span class="wave-values-meta" id="waveValuesMeta"></span>
+          <button type="button" id="btnWaveValuesToggle" class="ghost tiny" title="Hide values panel">Hide</button>
+        </div>
+        <div class="wave-values-scroll">
+          <table id="waveValuesTable" aria-live="polite" aria-label="Waveform values at cursors">
+            <thead>
+              <tr>
+                <th scope="col">Signal</th>
+                <th scope="col">C1</th>
+                <th scope="col">C2</th>
+                <th scope="col">Hover</th>
+              </tr>
+            </thead>
+            <tbody id="waveValuesBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <p class="wave-hint" id="waveHint">
+        Double-click id in source to add wave · dbl-click trace → source ·
+        Ctrl+K commands · ? help · / wave find · N next edge · W focus wave
+      </p>
+      <table id="waveSrTable" class="sr-only" aria-live="polite" aria-label="Waveform values at cursors (screen reader)"></table>
+    </section>
+  </div>
+
+  <a href="#editor" class="skip-link">Skip to editor</a>
+
+  <script type="module" src="assets/app.min.js"></script>
+</body>
+</html>
