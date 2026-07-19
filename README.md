@@ -2,7 +2,7 @@
 
 Browser-based HDL workbench (SystemVerilog subset simulator + waveform UI).
 
-**Release:** `rev4`
+**Release:** `rev5`
 
 ## Quick start
 

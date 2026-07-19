@@ -1,7 +1,7 @@
 {
   "name": "systemverilog-simulator",
   "private": true,
-  "rev": 4,
+  "rev": 5,
   "description": "Public release build of the HDL Simulator workbench + engine.mjs API.",
   "license": "MIT"
 }

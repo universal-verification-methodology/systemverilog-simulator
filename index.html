@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f6b5c">
   <meta name="mobile-web-app-capable" content="yes">
-  <title>HDL Simulator (rev4)</title>
+  <title>HDL Simulator (rev5)</title>
   <script>
     (function () {
       try {
@@ -54,6 +54,10 @@
           <input type="number" id="maxTime" min="1" max="1000000" value="1000" title="Simulation time limit">
         </label>
         <label class="tb-label">
+          Profile
+          <select id="buildConfigSelect" title="Build / run profile"></select>
+        </label>
+        <label class="tb-label">
           Time unit
           <select id="timeUnit">
             <option value="1">1</option>
@@ -72,12 +76,14 @@
             <button type="button" class="ghost" data-proxy="btnNextEdge">↗edge</button>
             <button type="button" class="ghost" data-proxy="btnView">View</button>
             <button type="button" class="ghost" data-proxy="btnImport">Import</button>
+            <button type="button" class="ghost" data-proxy="btnDownloadSrc">Download</button>
             <button type="button" class="ghost" data-proxy="btnExport">JSON</button>
             <button type="button" class="ghost" data-proxy="btnExportVcd">VCD</button>
           </div>
         </details>
         <button type="button" id="btnView" class="ghost" title="Show or hide panels &amp; tools">View</button>
-        <button type="button" id="btnImport" class="ghost" title="Import wave JSON or VCD">Import</button>
+        <button type="button" id="btnImport" class="ghost" title="Import Verilog, wave JSON, or VCD">Import</button>
+        <button type="button" id="btnDownloadSrc" class="ghost" title="Download current source (Shift+click: all files)">Download</button>
         <button type="button" id="btnExport" class="ghost" title="Export wave JSON">JSON</button>
         <button type="button" id="btnExportVcd" class="ghost" title="Export VCD">VCD</button>
         <label class="theme-switch" title="Day / night theme">
@@ -85,7 +91,7 @@
           <input type="checkbox" id="themeToggle" role="switch" aria-checked="false" aria-label="Night mode">
           <span class="theme-switch-track" aria-hidden="true"></span>
         </label>
-        <input type="file" id="importFile" accept="application/json,.json,.vcd,text/plain" hidden>
+        <input type="file" id="importFile" accept=".v,.sv,.vh,.svh,application/json,.json,.vcd,text/plain" hidden>
       </div>
     </header>
     <div id="sidebarBackdrop" class="sidebar-backdrop" hidden></div>
@@ -93,10 +99,43 @@
       Source changed since Step session started.
       <button type="button" id="btnRestartSession" class="ghost tiny">Restart session</button>
     </div>
+    <div id="pauseBanner" class="session-banner pause-banner" hidden>
+      Paused at <code>$stop</code> / breakpoint.
+      <button type="button" id="btnResumePause" class="ghost tiny">Continue (F5)</button>
+    </div>
     </div>
 
     <div class="workspace" id="workspace">
       <aside class="sidebar" id="sidebar" aria-label="Signal browser">
+        <div class="side-section files-section" id="filesSection">
+          <div class="side-head side-head-row">
+            <h2>Files</h2>
+            <button type="button" id="btnTreeAddFile" class="ghost tiny" title="Add source file">+</button>
+          </div>
+          <ul id="fileTree" class="tree file-tree" role="tree" aria-label="Project files"></ul>
+          <details class="build-opts-details" id="buildOptsDetails">
+            <summary>Build options</summary>
+            <div class="build-opts" id="buildOpts">
+              <label class="tb-label">
+                Defines
+                <input type="text" id="defineInput" placeholder="FOO=1,BAR" spellcheck="false" title="+define / `ifdef macros">
+              </label>
+              <label class="tb-label">
+                +incdir
+                <input type="text" id="incdirInput" placeholder="inc,rtl" spellcheck="false" title="Include search paths">
+              </label>
+              <label class="tb-label">
+                Entry
+                <input type="text" id="entryInput" placeholder="(optional)" spellcheck="false" title="Entry file for `include projects">
+              </label>
+              <div class="side-actions">
+                <button type="button" id="btnSaveBuildConfig" class="ghost tiny" title="Save current as profile">Save profile</button>
+                <button type="button" id="btnDelBuildConfig" class="ghost tiny" title="Delete selected profile">Del</button>
+              </div>
+            </div>
+          </details>
+        </div>
+        <div class="split-h side-split" data-split="files" title="Drag to resize files" role="separator" aria-orientation="horizontal"></div>
         <div class="side-section hier-section" id="hierSection">
           <div class="side-head">
             <h2>Hierarchy</h2>
@@ -104,7 +143,7 @@
           <ul id="hierTree" class="tree" role="tree"></ul>
         </div>
         <div class="split-h side-split" data-split="hier" title="Drag to resize hierarchy" role="separator" aria-orientation="horizontal"></div>
-        <div class="side-section flex">
+        <div class="side-section flex signals-section" id="signalsSection">
           <div class="side-head">
             <h2>Signals</h2>
             <input type="search" id="sigFilter" placeholder="Filter…" aria-label="Filter signals">
@@ -129,8 +168,12 @@
               Value
               <input type="text" id="pokeValue" placeholder="1 or 0101" spellcheck="false">
             </label>
-            <button type="button" id="btnPoke" class="ghost tiny" disabled>Apply poke</button>
-            <p class="poke-hint">Step to start a session. Values: 1, 0101, or 8'hA5. ↗edge uses poke signal or clk.</p>
+            <div class="side-actions poke-actions">
+              <button type="button" id="btnPoke" class="ghost tiny" disabled>Apply poke</button>
+              <button type="button" id="btnForce" class="ghost tiny" disabled title="force signal (session)">Force</button>
+              <button type="button" id="btnRelease" class="ghost tiny" disabled title="release forced signal">Release</button>
+            </div>
+            <p class="poke-hint">Step to start a session. Values: 1, 0101, or 8'hA5.</p>
           </div>
         </div>
       </aside>
@@ -143,10 +186,15 @@
             <button type="button" id="btnAddFile" class="ghost tiny file-add" title="Add source file">+ File</button>
             <span class="tab active" id="fileTab" hidden>design.v</span>
             <span class="pane-meta" id="editorMeta">Verilog</span>
+            <span class="assist-chip" id="assistHint" hidden></span>
             <div class="pane-actions">
               <button type="button" id="btnFold" class="ghost tiny" title="Fold top-level blocks">Fold</button>
               <button type="button" id="btnUnfold" class="ghost tiny" title="Expand all folds">Unfold</button>
               <button type="button" id="btnSplit" class="ghost tiny" title="Toggle 2-column editor" aria-pressed="false">2-pane</button>
+              <button type="button" id="btnDiagram" class="ghost tiny" title="Open FSM / Outline / Signal-flow in the right pane">Diagram</button>
+              <button type="button" id="btnGotoDef" class="ghost tiny" title="Go to definition (F12 / Ctrl+click)">Def</button>
+              <button type="button" id="btnFindRefs" class="ghost tiny" title="Find references">Refs</button>
+              <button type="button" id="btnFormat" class="ghost tiny" title="Format document">Fmt</button>
               <span class="editor-zoom-controls" title="Ctrl+wheel zoom · Shift+wheel pan · middle-drag pan">
                 <button type="button" id="btnEditorZoomOut" class="ghost tiny" title="Zoom out (Ctrl+−)">A−</button>
                 <button type="button" id="btnEditorZoomReset" class="ghost tiny editor-zoom-label" title="Reset zoom (Ctrl+0)">100%</button>
@@ -178,6 +226,15 @@
             <div class="editor-col editor-col-side" id="editorColSide" hidden aria-hidden="true">
               <div class="side-editor-bar">
                 <label class="side-file-label">
+                  <span class="sr-only">Side pane mode</span>
+                  <select id="sideModeSelect" aria-label="Side pane mode">
+                    <option value="mirror">Mirror</option>
+                    <option value="outline">Outline</option>
+                    <option value="fsm">FSM</option>
+                    <option value="flow">Signal flow</option>
+                  </select>
+                </label>
+                <label class="side-file-label" id="sideFileWrap">
                   <span class="sr-only">Side pane file</span>
                   <select id="sideFileSelect" aria-label="Side pane file"></select>
                 </label>
@@ -185,6 +242,16 @@
                 <button type="button" id="btnCloseSplit" class="ghost tiny" title="Close split">×</button>
               </div>
               <textarea id="editorSide" spellcheck="false" aria-label="Side source editor"></textarea>
+              <div id="sideDiagram" class="side-diagram" hidden>
+                <div class="diagram-toolbar">
+                  <select id="diagramFsmSelect" class="diagram-select" hidden aria-label="FSM"></select>
+                  <input type="text" id="diagramFlowSignal" class="diagram-flow-input" placeholder="signal…" hidden aria-label="Flow signal" />
+                  <button type="button" id="btnDiagramRefresh" class="ghost tiny" title="Refresh diagram">↻</button>
+                  <span class="diagram-status" id="diagramStatus"></span>
+                </div>
+                <div class="diagram-canvas" id="diagramCanvas" aria-live="polite"></div>
+                <p class="diagram-empty" id="diagramEmpty" hidden></p>
+              </div>
             </div>
           </div>
         </section>
@@ -194,7 +261,34 @@
             <button type="button" class="tab active" data-bottom-tab="console">Console</button>
             <button type="button" class="tab" data-bottom-tab="events">Events</button>
             <button type="button" class="tab" data-bottom-tab="tests">Tests</button>
+            <button type="button" class="tab" data-bottom-tab="problems">Problems</button>
+            <button type="button" class="tab" data-bottom-tab="compare">Compare</button>
+            <button type="button" class="tab" data-bottom-tab="debug">Debug</button>
+            <button type="button" class="tab" data-bottom-tab="memory">Memory</button>
             <div class="pane-actions">
+              <span class="tab-tools" data-tab-tools="compare" hidden>
+                <button type="button" id="btnSetGolden" class="ghost tiny" title="Snapshot current waves as golden">Set golden</button>
+                <button type="button" id="btnLoadGoldenVcd" class="ghost tiny" title="Import VCD as golden">Load VCD…</button>
+                <button type="button" id="btnClearGolden" class="ghost tiny">Clear golden</button>
+                <button type="button" id="btnRunCompare" class="ghost tiny" title="Diff golden vs current at C1">Diff @ C1</button>
+                <span class="compare-meta" id="compareMeta">No golden</span>
+                <input type="file" id="goldenVcdFile" accept=".vcd,text/plain" hidden>
+              </span>
+              <span class="tab-tools" data-tab-tools="debug" hidden>
+                <button type="button" id="btnWatchAdd" class="ghost tiny" title="Add signal under caret or poke name">+ Watch</button>
+                <button type="button" id="btnWatchRefresh" class="ghost tiny" title="Refresh watches">↻</button>
+                <button type="button" id="btnBpClear" class="ghost tiny" title="Clear all breakpoints">Clear BPs</button>
+              </span>
+              <span class="tab-tools" data-tab-tools="memory" hidden>
+                <label class="tb-label inline">
+                  Mem
+                  <select id="memorySelect" aria-label="Memory"></select>
+                </label>
+                <button type="button" id="btnMemDump" class="ghost tiny">Dump</button>
+                <span class="compare-meta" id="memoryMeta"></span>
+              </span>
+              <button type="button" id="btnFindFiles" class="ghost tiny" title="Find in files (Ctrl+Shift+F)">Find…</button>
+              <button type="button" id="btnGotoSymbol" class="ghost tiny" title="Go to symbol (Ctrl+T)">Symbol</button>
               <button type="button" id="btnCopyConsole" class="ghost tiny" title="Copy console">Copy</button>
               <button type="button" id="btnClearConsole" class="ghost tiny">Clear</button>
             </div>
@@ -204,6 +298,49 @@
           <div id="testSummary" class="test-summary bottom-panel" data-panel="tests" hidden>
             <p class="test-empty">Run a simulation — $error / $warning / PASS / FAIL lines appear here.</p>
             <ul id="testList"></ul>
+          </div>
+          <div id="problemsPanel" class="problems-panel bottom-panel" data-panel="problems" hidden>
+            <p class="problems-empty">No findings — style / synth hints appear here while you type.</p>
+            <ul id="problemsList" aria-label="Lint findings"></ul>
+          </div>
+          <div id="comparePanel" class="compare-panel bottom-panel" data-panel="compare" hidden>
+            <p class="compare-empty" id="compareEmpty">Set a golden run or load a VCD, then Diff @ C1.</p>
+            <div class="compare-scroll">
+              <table id="compareTable" hidden aria-label="Wave compare">
+                <thead>
+                  <tr><th>Signal</th><th>Golden</th><th>Current</th><th>Status</th></tr>
+                </thead>
+                <tbody id="compareBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="debugPanel" class="debug-panel bottom-panel" data-panel="debug" hidden>
+            <div class="debug-grid">
+              <div class="debug-col">
+                <div class="debug-head"><strong>Watch</strong></div>
+                <ul id="watchList" class="debug-list" aria-label="Watch expressions"></ul>
+              </div>
+              <div class="debug-col">
+                <div class="debug-head"><strong>Breakpoints</strong></div>
+                <ul id="bpList" class="debug-list" aria-label="Breakpoints"></ul>
+              </div>
+              <div class="debug-col">
+                <div class="debug-head">
+                  <strong>Forced</strong>
+                  <span class="debug-meta" id="forcedMeta"></span>
+                </div>
+                <ul id="forcedList" class="debug-list" aria-label="Forced signals"></ul>
+              </div>
+            </div>
+          </div>
+          <div id="memoryPanel" class="memory-panel bottom-panel" data-panel="memory" hidden>
+            <div class="compare-scroll">
+              <table id="memoryTable" hidden aria-label="Memory dump">
+                <thead><tr><th>Addr</th><th>Bits</th><th>Hex</th></tr></thead>
+                <tbody id="memoryBody"></tbody>
+              </table>
+            </div>
+            <p class="compare-empty" id="memoryEmpty">No memories yet — run a design that declares mem arrays, then Dump.</p>
           </div>
         </section>
       </div>
@@ -276,10 +413,20 @@
       </div>
       <p class="wave-hint" id="waveHint">
         Double-click id in source to add wave · dbl-click trace → source ·
-        Ctrl+K commands · ? help · / wave find · N next edge · W focus wave
+        Alt/Ctrl+click wave → source · F12 definition · hover peek ·
+        gutter breakpoints · Compare tab · Ctrl+K commands · ? help
       </p>
       <table id="waveSrTable" class="sr-only" aria-live="polite" aria-label="Waveform values at cursors (screen reader)"></table>
     </section>
+
+  <footer class="ide-statusbar" id="ideStatusbar" aria-label="Status">
+    <span id="sbParse">Verilog</span>
+    <span id="sbSymbols">—</span>
+    <span id="sbHints">—</span>
+    <span id="sbTop">—</span>
+    <span id="sbTime">t=—</span>
+    <span class="sb-right" id="sbHint">Ctrl+Shift+F files · Ctrl+T symbol · F12 Def · Debug/Memory tabs</span>
+  </footer>
   </div>
 
   <a href="#editor" class="skip-link">Skip to editor</a>

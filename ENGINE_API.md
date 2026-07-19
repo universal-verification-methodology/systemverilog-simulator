@@ -1,4 +1,4 @@
-# Public engine API (rev4)
+# Public engine API (rev5)
 
 ESM module: [`assets/engine.mjs`](assets/engine.mjs)
 
