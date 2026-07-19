@@ -1,8 +1,8 @@
 {
-  "rev": 3,
-  "tag": "rev3",
-  "builtAt": "2026-07-18T17:21:50.298Z",
-  "privateCommit": "8bf16ca",
+  "rev": 4,
+  "tag": "rev4",
+  "builtAt": "2026-07-19T04:35:13.555Z",
+  "privateCommit": "d848245",
   "privateRepo": "https://github.com/universal-verification-methodology/systemverilog-simulator-src",
   "publicRepo": "https://github.com/universal-verification-methodology/systemverilog-simulator"
 }
